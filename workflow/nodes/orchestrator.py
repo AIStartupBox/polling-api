@@ -6,6 +6,7 @@ This node initializes the workflow and prepares for report identification.
 
 import asyncio
 from typing import Dict, Any
+
 from state import AppState
 
 
@@ -19,12 +20,16 @@ async def orchestrator(app_state: AppState) -> Dict[str, Any]:
     Returns:
         Updated state dict with UI status set to orchestrator step
     """
-    # Check interrupt flag - if True, skip processing
-    if app_state.get("Interrupt", False):
-        return {"state": app_state["state"].copy(), "Interrupt": True}
-
     # Copy current state to avoid mutation issues
     current = app_state["state"].copy()
+    user_query = current.get("message", "")
+
+    print(f"→ Entering orchestrator node - Query: '{user_query}'")
+
+    # Check interrupt flag - if True, skip processing
+    if app_state.get("Interrupt", False):
+        print("→ Orchestrator node - Interrupt flag detected, skipping processing")
+        return {"state": app_state["state"].copy(), "Interrupt": True}
 
     # Simulate some processing time
     await asyncio.sleep(0.5)
@@ -43,5 +48,7 @@ async def orchestrator(app_state: AppState) -> Dict[str, Any]:
 
     current["data"]["step"] = "orchestrator_complete"
     current["data"]["user_query"] = current.get("message", "")
+
+    print(f"← Leaving orchestrator node - Query: '{user_query}', Status: orchestrator_complete")
 
     return {"state": current, "Interrupt": False}

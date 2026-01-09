@@ -6,6 +6,7 @@ This node simulates processing each identified report and extracting data.
 
 import asyncio
 from typing import Dict, Any
+
 from state import AppState
 
 
@@ -19,13 +20,15 @@ async def report_runner(app_state: AppState) -> Dict[str, Any]:
     Returns:
         Updated state with processed report data
     """
+    current = app_state["state"].copy()
+    reports = current["data"].get("reports", [])
+
+    print(f"→ Entering report_runner node - Processing {len(reports)} reports: {reports}")
+
     # Check interrupt flag - if True, skip processing
     if app_state.get("Interrupt", False):
+        print("→ Report_runner node - Interrupt flag detected, skipping processing")
         return {"state": app_state["state"].copy(), "Interrupt": True}
-
-    current = app_state["state"].copy()
-
-    reports = current["data"].get("reports", [])
     processed_data = []
 
     # Process each report with progress updates
@@ -102,5 +105,7 @@ async def report_runner(app_state: AppState) -> Dict[str, Any]:
     # Store processed data
     current["data"]["processed_reports"] = processed_data
     current["data"]["step"] = "reports_processed"
+
+    print(f"← Leaving report_runner node - Processed {len(reports)} reports successfully, Status: reports_processed")
 
     return {"state": current, "Interrupt": False}

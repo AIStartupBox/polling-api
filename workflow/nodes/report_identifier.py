@@ -6,6 +6,7 @@ This node analyzes the user's message and determines which reports to process.
 
 import asyncio
 from typing import Dict, Any
+
 from state import AppState
 
 
@@ -19,29 +20,35 @@ async def report_identifier(app_state: AppState) -> Dict[str, Any]:
     Returns:
         Updated state with identified reports list
     """
+    current = app_state["state"].copy()
+    user_query = current.get("message", "")
+
+    print(f"→ Entering report_identifier node - Query: '{user_query}'")
+
     # Check interrupt flag - if True, skip processing
     if app_state.get("Interrupt", False):
+        print("→ Report_identifier node - Interrupt flag detected, skipping processing")
         return {"state": app_state["state"].copy(), "Interrupt": True}
-
-    current = app_state["state"].copy()
 
     # Simulate report identification processing
     await asyncio.sleep(1.0)
 
     # Mock report identification based on query keywords
-    user_query = current.get("message", "").lower()
+    user_query_lower = user_query.lower()
     identified_reports = []
 
     # Simple keyword-based report identification
-    if "sales" in user_query or "q4" in user_query or "revenue" in user_query:
+    if "sales" in user_query_lower or "q4" in user_query_lower or "revenue" in user_query_lower:
         identified_reports = ["sales_q4.pdf", "revenue_q4.xlsx"]
-    elif "marketing" in user_query:
+    elif "marketing" in user_query_lower:
         identified_reports = ["marketing_report.pdf"]
-    elif "finance" in user_query:
+    elif "finance" in user_query_lower:
         identified_reports = ["financial_summary.xlsx", "budget_q4.pdf"]
     else:
         # Default reports for generic queries
         identified_reports = ["sales_q4.pdf", "revenue_q4.xlsx"]
+
+    print(f"  Report_identifier node - Identified {len(identified_reports)} reports: {identified_reports}")
 
     # Update UI state
     current["ui"] = {
@@ -54,5 +61,7 @@ async def report_identifier(app_state: AppState) -> Dict[str, Any]:
     # Store identified reports in data
     current["data"]["reports"] = identified_reports
     current["data"]["step"] = "reports_identified"
+
+    print(f"← Leaving report_identifier node - Reports: {identified_reports}, Status: reports_identified")
 
     return {"state": current, "Interrupt": False}

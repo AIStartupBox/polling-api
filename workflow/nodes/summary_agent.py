@@ -6,6 +6,7 @@ This node creates a comprehensive summary based on processed report data.
 
 import asyncio
 from typing import Dict, Any, List
+
 from state import AppState
 
 
@@ -19,16 +20,18 @@ async def summary_agent(app_state: AppState) -> Dict[str, Any]:
     Returns:
         Updated state with final summary and completed status
     """
+    current = app_state["state"].copy()
+    processed_reports = current["data"].get("processed_reports", [])
+
+    print(f"→ Entering summary_agent node - Generating summary for {len(processed_reports)} processed reports")
+
     # Check interrupt flag - if True, skip processing
     if app_state.get("Interrupt", False):
+        print("→ Summary_agent node - Interrupt flag detected, skipping processing")
         return {"state": app_state["state"].copy(), "Interrupt": True}
-
-    current = app_state["state"].copy()
 
     # Simulate AI summary generation
     await asyncio.sleep(1.5)
-
-    processed_reports = current["data"].get("processed_reports", [])
 
     # Generate insights based on processed data
     insights = []
@@ -89,5 +92,7 @@ async def summary_agent(app_state: AppState) -> Dict[str, Any]:
     current["data"]["summary"] = summary_text
     current["data"]["insights"] = insights
     current["data"]["step"] = "completed"
+
+    print(f"← Leaving summary_agent node - Summary generated with {len(insights)} insights, Status: completed")
 
     return {"state": current, "Interrupt": False}
