@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from workflow.graph import graph
+from workflow.graph import graph, cleanup_checkpoints
 
 
 # Pydantic models
@@ -18,17 +18,19 @@ class ChatRequest(BaseModel):
     """Request model for chat endpoint."""
     message: Optional[str] = None
     thread_id: Optional[str] = None
+    approved: Optional[bool] = None  # For handling interrupt approval
 
 
 class ChatResponse(BaseModel):
     """Response model for chat endpoint."""
     thread_id: str
-    status: Literal["running", "completed", "failed"]
+    status: Literal["running", "completed", "failed", "waiting_approval"]
     message: str
     current_node: str
     progress: Dict[str, int]
     data: Dict[str, Any]
     retry_after: Optional[int]
+    requires_approval: Optional[bool] = False  # Indicates if workflow is waiting for approval
 
 
 # Create router
@@ -67,6 +69,9 @@ async def run_background_graph(thread_id: str, user_message: str):
             # The graph automatically saves checkpoints to MongoDB
             pass
 
+        # Note: Cleanup happens when user polls and receives the completed status
+        # This ensures the user sees the final state before it's deleted
+
     except Exception as e:
         # If graph execution fails, save error state
         print(f"Error in background graph execution: {e}")
@@ -84,6 +89,59 @@ async def run_background_graph(thread_id: str, user_message: str):
                 }
             }
             config = {"configurable": {"thread_id": thread_id}}
+            # Update state with error
+            await graph.aupdate_state(config, error_state)
+        except Exception as update_error:
+            print(f"Failed to update error state: {update_error}")
+
+
+async def resume_workflow(thread_id: str):
+    """
+    Resume an interrupted workflow.
+
+    Args:
+        thread_id: Unique thread identifier
+    """
+    try:
+        # Configure thread
+        config = {"configurable": {"thread_id": thread_id}}
+
+        # Small delay to ensure the approval response is sent first
+        await asyncio.sleep(0.1)
+
+        # Resume the graph from where it was interrupted
+        # Passing None as input resumes from the last checkpoint
+        async for event in graph.astream(None, config):
+            # Events are streamed as the graph processes
+            # The graph automatically saves checkpoints to MongoDB
+            pass
+
+        # Note: Cleanup happens when user polls and receives the completed status
+        # This ensures the user sees the final state before it's deleted
+
+    except Exception as e:
+        # If graph execution fails, save error state
+        print(f"Error resuming workflow: {e}")
+        import traceback
+        traceback.print_exc()
+
+        try:
+            config = {"configurable": {"thread_id": thread_id}}
+            snapshot = graph.get_state(config)
+            current_state = snapshot.values.get("state", {}) if snapshot and snapshot.values else {}
+
+            error_state = {
+                "state": {
+                    **current_state,
+                    "ui": {
+                        "message": f"❌ Workflow failed after resume: {str(e)}",
+                        "current_node": "error",
+                        "status": "failed",
+                        "progress": current_state.get("ui", {}).get("progress", {"current": 0, "total": 4})
+                    },
+                    "data": {**current_state.get("data", {}), "error": str(e)}
+                }
+            }
             # Update state with error
             await graph.aupdate_state(config, error_state)
         except Exception as update_error:
@@ -144,6 +202,66 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     detail=f"Thread {request.thread_id} not found"
                 )
 
+            # Check if workflow is interrupted and waiting for approval
+            # When LangGraph interrupts:
+            # - snapshot.next contains the next node(s) to execute
+            # - snapshot.tasks contains pending tasks (with result=None)
+            # - We check if report_identifier is in next and tasks have no results (pending)
+            next_node = snapshot.next if hasattr(snapshot, 'next') else []
+            tasks = snapshot.tasks if hasattr(snapshot, 'tasks') else []
+
+            # Workflow is interrupted if next node is report_identifier and tasks are pending (no result)
+            # Tasks with result=None are pending (interrupted), tasks with results are running/complete
+            is_interrupted = (
+                len(next_node) > 0 and
+                "report_identifier" in next_node and
+                len(tasks) > 0 and
+                all(task.result is None for task in tasks)  # All tasks pending means interrupted
+            )
+
+            # Handle approval/rejection when workflow is interrupted
+            if request.approved is not None and is_interrupted:
+                if request.approved:
+                    # User approved - resume the workflow by running it in background
+                    asyncio.create_task(resume_workflow(request.thread_id))
+
+                    # Return response indicating workflow is resuming
+                    return ChatResponse(
+                        thread_id=request.thread_id,
+                        status="running",
+                        message="✅ Approved! Continuing with report identification...",
+                        current_node="report_identifier",
+                        progress={"current": 2, "total": 4},
+                        data=snapshot.values.get("state", {}).get("data", {}),
+                        retry_after=2,
+                        requires_approval=False
+                    )
+                else:
+                    # User rejected - stop the workflow
+                    rejection_state = {
+                        "state": {
+                            **snapshot.values.get("state", {}),
+                            "ui": {
+                                "message": "❌ Workflow cancelled by user",
+                                "current_node": "cancelled",
+                                "status": "failed",
+                                "progress": {"current": 1, "total": 4}
+                            }
+                        }
+                    }
+                    graph.update_state(config, rejection_state)
+
+                    return ChatResponse(
+                        thread_id=request.thread_id,
+                        status="failed",
+                        message="❌ Workflow cancelled by user",
+                        current_node="cancelled",
+                        progress={"current": 1, "total": 4},
+                        data=snapshot.values.get("state", {}).get("data", {}),
+                        retry_after=None,
+                        requires_approval=False
+                    )
+
             # Extract state
             state = snapshot.values.get("state", {})
             ui = state.get("ui", {
@@ -154,19 +272,39 @@ async def chat(request: ChatRequest) -> ChatResponse:
             })
             data = state.get("data", {})
 
-            # Determine retry_after based on status
-            status = ui.get("status", "running")
-            retry_after = None if status == "completed" or status == "failed" else 2
+            # If workflow is interrupted, show approval message
+            if is_interrupted:
+                status = "waiting_approval"
+                message = "⚠️ Workflow paused. Approval required to proceed with report identification."
+                retry_after = None  # Don't retry while waiting for approval
+            else:
+                status = ui.get("status", "running")
+                message = ui.get("message", "Processing...")
+                retry_after = None if status == "completed" or status == "failed" else 2
 
-            return ChatResponse(
+            # Prepare the response
+            response = ChatResponse(
                 thread_id=request.thread_id,
                 status=status,
-                message=ui.get("message", "Processing..."),
+                message=message,
                 current_node=ui.get("current_node", "unknown"),
                 progress=ui.get("progress", {"current": 0, "total": 4}),
                 data=data,
-                retry_after=retry_after
+                retry_after=retry_after,
+                requires_approval=is_interrupted
             )
+
+            # Cleanup checkpoints AFTER preparing response if workflow is completed
+            # This ensures the user receives the final state before deletion
+            if status == "completed":
+                # Schedule cleanup in background to not block response
+                async def delayed_cleanup():
+                    await asyncio.sleep(0.5)  # Wait for response to be sent
+                    cleanup_checkpoints(request.thread_id)
+
+                asyncio.create_task(delayed_cleanup())
+
+            return response
 
         except HTTPException:
             raise
