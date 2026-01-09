@@ -19,6 +19,10 @@ async def report_runner(app_state: AppState) -> Dict[str, Any]:
     Returns:
         Updated state with processed report data
     """
+    # Check interrupt flag - if True, skip processing
+    if app_state.get("Interrupt", False):
+        return {"state": app_state["state"].copy(), "Interrupt": True}
+
     current = app_state["state"].copy()
 
     reports = current["data"].get("reports", [])
@@ -99,4 +103,4 @@ async def report_runner(app_state: AppState) -> Dict[str, Any]:
     current["data"]["processed_reports"] = processed_data
     current["data"]["step"] = "reports_processed"
 
-    return {"state": current}
+    return {"state": current, "Interrupt": False}

@@ -57,7 +57,8 @@ async def run_background_graph(thread_id: str, user_message: str):
                     "progress": {"current": 0, "total": 4}
                 },
                 "data": {}
-            }
+            },
+            "Interrupt": False  # Initialize interrupt flag
         }
 
         # Configure thread
@@ -222,7 +223,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
             # Handle approval/rejection when workflow is interrupted
             if request.approved is not None and is_interrupted:
                 if request.approved:
-                    # User approved - resume the workflow by running it in background
+                    # User approved - update state to set Interrupt flag to False
+                    approval_state = {
+                        "state": snapshot.values.get("state", {}),
+                        "Interrupt": False
+                    }
+                    graph.update_state(config, approval_state)
+
+                    # Resume the workflow by running it in background
                     asyncio.create_task(resume_workflow(request.thread_id))
 
                     # Return response indicating workflow is resuming
@@ -272,8 +280,15 @@ async def chat(request: ChatRequest) -> ChatResponse:
             })
             data = state.get("data", {})
 
-            # If workflow is interrupted, show approval message
+            # If workflow is interrupted, show approval message and set Interrupt flag
             if is_interrupted:
+                # Update state to set Interrupt flag to True
+                interrupt_state = {
+                    "state": snapshot.values.get("state", {}),
+                    "Interrupt": True
+                }
+                graph.update_state(config, interrupt_state)
+
                 status = "waiting_approval"
                 message = "⚠️ Workflow paused. Approval required to proceed with report identification."
                 retry_after = None  # Don't retry while waiting for approval

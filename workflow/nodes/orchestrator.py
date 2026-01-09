@@ -19,6 +19,10 @@ async def orchestrator(app_state: AppState) -> Dict[str, Any]:
     Returns:
         Updated state dict with UI status set to orchestrator step
     """
+    # Check interrupt flag - if True, skip processing
+    if app_state.get("Interrupt", False):
+        return {"state": app_state["state"].copy(), "Interrupt": True}
+
     # Copy current state to avoid mutation issues
     current = app_state["state"].copy()
 
@@ -40,4 +44,4 @@ async def orchestrator(app_state: AppState) -> Dict[str, Any]:
     current["data"]["step"] = "orchestrator_complete"
     current["data"]["user_query"] = current.get("message", "")
 
-    return {"state": current}
+    return {"state": current, "Interrupt": False}

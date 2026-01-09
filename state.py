@@ -16,5 +16,7 @@ class AppState(TypedDict):
     - state["message"]: Original user input
     - state["ui"]: UI-specific data (message, current_node, status, progress)
     - state["data"]: Business logic data (reports, insights, etc.)
+    - state["Interrupt"]: Interrupt control flag
     """
     state: Dict[str, Any]
+    Interrupt: bool

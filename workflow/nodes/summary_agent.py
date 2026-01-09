@@ -19,6 +19,10 @@ async def summary_agent(app_state: AppState) -> Dict[str, Any]:
     Returns:
         Updated state with final summary and completed status
     """
+    # Check interrupt flag - if True, skip processing
+    if app_state.get("Interrupt", False):
+        return {"state": app_state["state"].copy(), "Interrupt": True}
+
     current = app_state["state"].copy()
 
     # Simulate AI summary generation
@@ -86,4 +90,4 @@ async def summary_agent(app_state: AppState) -> Dict[str, Any]:
     current["data"]["insights"] = insights
     current["data"]["step"] = "completed"
 
-    return {"state": current}
+    return {"state": current, "Interrupt": False}

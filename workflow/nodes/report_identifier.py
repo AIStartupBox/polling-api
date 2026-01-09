@@ -19,6 +19,10 @@ async def report_identifier(app_state: AppState) -> Dict[str, Any]:
     Returns:
         Updated state with identified reports list
     """
+    # Check interrupt flag - if True, skip processing
+    if app_state.get("Interrupt", False):
+        return {"state": app_state["state"].copy(), "Interrupt": True}
+
     current = app_state["state"].copy()
 
     # Simulate report identification processing
@@ -51,4 +55,4 @@ async def report_identifier(app_state: AppState) -> Dict[str, Any]:
     current["data"]["reports"] = identified_reports
     current["data"]["step"] = "reports_identified"
 
-    return {"state": current}
+    return {"state": current, "Interrupt": False}
