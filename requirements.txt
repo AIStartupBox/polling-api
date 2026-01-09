@@ -1,0 +1,18 @@
+# Core FastAPI dependencies
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+python-multipart==0.0.9
+
+# LangGraph and LangChain
+langgraph==0.2.52
+langgraph-checkpoint-mongodb==0.2.0
+langchain-core==0.3.21
+
+# MongoDB for checkpointing
+pymongo==4.14.0
+motor==3.7.1
+
+# Streamlit for testing UI
+streamlit==1.39.0
+requests==2.32.3
